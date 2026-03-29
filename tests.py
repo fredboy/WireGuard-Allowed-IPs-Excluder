@@ -1,5 +1,7 @@
-from ipaddress import IPv4Network, IPv6Network
+from ipaddress import IPv4Network, IPv6Network, ip_network
+import os
 import sys
+import tempfile
 import unittest
 from unittest import mock
 from WireGuard_Excluded_IPs import main
@@ -133,6 +135,93 @@ class TestWireGuardExcludedIPs(unittest.TestCase):
         ]
 
         self.assertEqual(main(True), expected)
+
+
+    @mock.patch("WireGuard_Excluded_IPs.print")
+    def test_file_input_disallowed(self, _):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("192.168.0.0/16, 10.0.0.0/8")
+            tmpfile = f.name
+        try:
+            sys.argv = ["WireGuard_Excluded_IPs.py", "0.0.0.0/0", f"@{tmpfile}"]
+            result = main(True)
+        finally:
+            os.unlink(tmpfile)
+
+        expected = [
+            IPv4Network("0.0.0.0/5"),
+            IPv4Network("8.0.0.0/7"),
+            IPv4Network("11.0.0.0/8"),
+            IPv4Network("12.0.0.0/6"),
+            IPv4Network("16.0.0.0/4"),
+            IPv4Network("32.0.0.0/3"),
+            IPv4Network("64.0.0.0/2"),
+            IPv4Network("128.0.0.0/2"),
+            IPv4Network("192.0.0.0/9"),
+            IPv4Network("192.128.0.0/11"),
+            IPv4Network("192.160.0.0/13"),
+            IPv4Network("192.169.0.0/16"),
+            IPv4Network("192.170.0.0/15"),
+            IPv4Network("192.172.0.0/14"),
+            IPv4Network("192.176.0.0/12"),
+            IPv4Network("192.192.0.0/10"),
+            IPv4Network("193.0.0.0/8"),
+            IPv4Network("194.0.0.0/7"),
+            IPv4Network("196.0.0.0/6"),
+            IPv4Network("200.0.0.0/5"),
+            IPv4Network("208.0.0.0/4"),
+            IPv4Network("224.0.0.0/3"),
+        ]
+        self.assertEqual(result, expected)
+
+    @mock.patch("WireGuard_Excluded_IPs.print")
+    def test_file_input_allowed(self, _):
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("0.0.0.0/0")
+            tmpfile = f.name
+        try:
+            sys.argv = ["WireGuard_Excluded_IPs.py", f"@{tmpfile}", "10.0.0.0/8"]
+            result = main(True)
+        finally:
+            os.unlink(tmpfile)
+
+        self.assertIn(IPv4Network("0.0.0.0/5"), result)
+        self.assertNotIn(IPv4Network("10.0.0.0/8"), result)
+
+    @mock.patch("WireGuard_Excluded_IPs.print")
+    def test_file_input_multiline(self, _):
+        """File with one subnet per line (newline-separated)."""
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write("192.168.0.0/16\n10.0.0.0/8\n")
+            tmpfile = f.name
+        try:
+            sys.argv = ["WireGuard_Excluded_IPs.py", "0.0.0.0/0", f"@{tmpfile}"]
+            result = main(True)
+        finally:
+            os.unlink(tmpfile)
+
+        # Same subnets as test_file_input_disallowed, should produce same result
+        self.assertIn(IPv4Network("0.0.0.0/5"), result)
+        self.assertNotIn(IPv4Network("10.0.0.0/8"), result)
+        self.assertNotIn(IPv4Network("192.168.0.0/16"), result)
+
+    @mock.patch("WireGuard_Excluded_IPs.print")
+    def test_large_file_input(self, _):
+        """Large file with many subnets exercises file parsing performance."""
+        subnets = [f"10.{i}.0.0/16" for i in range(100)]
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False) as f:
+            f.write(", ".join(subnets))
+            tmpfile = f.name
+        try:
+            sys.argv = ["WireGuard_Excluded_IPs.py", "10.0.0.0/8", f"@{tmpfile}"]
+            result = main(True)
+        finally:
+            os.unlink(tmpfile)
+
+        self.assertIsInstance(result, list)
+        self.assertGreater(len(result), 0)
+        for net in result:
+            self.assertIsInstance(net, (IPv4Network, IPv6Network))
 
 
 if __name__ == "__main__":

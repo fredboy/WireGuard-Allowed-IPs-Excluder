@@ -1,5 +1,14 @@
 import ipaddress
+import os
 import sys
+
+
+def parse_ip_networks_from_file(filepath):
+    """Read IP networks from a file. Supports comma-separated or newline-separated entries."""
+    with open(filepath, "r") as f:
+        content = f.read()
+    content = content.replace("\n", ",")
+    return parse_ip_networks(content)
 
 
 def parse_ip_networks(ip_list_str):
@@ -9,6 +18,8 @@ def parse_ip_networks(ip_list_str):
 
     for ip in ip_list:
         ip = ip.strip()
+        if not ip:
+            continue
         try:
             if "/" in ip:
                 networks.append(ipaddress.ip_network(ip, strict=False))
@@ -138,20 +149,42 @@ def main(unittest=False):
 
     # Validate and parse command line arguments or get user input if arguments are invalid or not provided.
     if allowed_input:
-        allowed_networks, invalid_allowed = parse_ip_networks(allowed_input)
-        if invalid_allowed:
-            print("Invalid Allowed IPs: " + ", ".join(invalid_allowed))
-            allowed_networks = (
-                []
-            )  # Reset to empty to trigger interactive mode for allowed IPs
+        if allowed_input.startswith("@"):
+            filepath = allowed_input[1:]
+            if not os.path.isfile(filepath):
+                print(f"File not found: {filepath}")
+                allowed_networks = []
+            else:
+                allowed_networks, invalid_allowed = parse_ip_networks_from_file(filepath)
+                if invalid_allowed:
+                    print("Invalid Allowed IPs: " + ", ".join(invalid_allowed))
+                    allowed_networks = []
+        else:
+            allowed_networks, invalid_allowed = parse_ip_networks(allowed_input)
+            if invalid_allowed:
+                print("Invalid Allowed IPs: " + ", ".join(invalid_allowed))
+                allowed_networks = (
+                    []
+                )  # Reset to empty to trigger interactive mode for allowed IPs
 
     if disallowed_input:  # This ensures it won't run if there's no disallowed_input
-        disallowed_networks, invalid_disallowed = parse_ip_networks(disallowed_input)
-        if invalid_disallowed:
-            print("Invalid Disallowed IPs: " + ", ".join(invalid_disallowed))
-            disallowed_networks = (
-                []
-            )  # Reset to empty to trigger interactive mode for disallowed IPs
+        if disallowed_input.startswith("@"):
+            filepath = disallowed_input[1:]
+            if not os.path.isfile(filepath):
+                print(f"File not found: {filepath}")
+                disallowed_networks = []
+            else:
+                disallowed_networks, invalid_disallowed = parse_ip_networks_from_file(filepath)
+                if invalid_disallowed:
+                    print("Invalid Disallowed IPs: " + ", ".join(invalid_disallowed))
+                    disallowed_networks = []
+        else:
+            disallowed_networks, invalid_disallowed = parse_ip_networks(disallowed_input)
+            if invalid_disallowed:
+                print("Invalid Disallowed IPs: " + ", ".join(invalid_disallowed))
+                disallowed_networks = (
+                    []
+                )  # Reset to empty to trigger interactive mode for disallowed IPs
 
     # If inputs were invalid or not provided, switch to interactive mode.
     if not allowed_networks and not len(sys.argv) == 2:
