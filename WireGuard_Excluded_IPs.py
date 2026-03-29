@@ -53,63 +53,36 @@ def get_input_and_parse(prompt):
 
 
 def exclude_networks(allowed_networks, disallowed_networks):
-    remaining_networks = set(allowed_networks)
+    result = set()
+    for version, addr_cls in ((4, ipaddress.IPv4Address), (6, ipaddress.IPv6Address)):
+        allowed_v = [n for n in allowed_networks if n.version == version]
+        dis_v = [n for n in disallowed_networks if n.version == version]
 
-    for disallowed in disallowed_networks:
-        new_remaining_networks = set()
+        if not allowed_v:
+            continue
 
-        for allowed in remaining_networks:
-            if allowed.version == disallowed.version:
-                if disallowed.subnet_of(allowed):
-                    # If the disallowed network is a subnet of the allowed network, exclude it
-                    new_remaining_networks.update(allowed.address_exclude(disallowed))
-                elif allowed.overlaps(disallowed):
-                    # Handle partial overlap
-                    new_remaining_networks.update(
-                        handle_partial_overlap(allowed, disallowed)
-                    )
-                else:
-                    # If there's no overlap, keep the allowed network as it is.
-                    new_remaining_networks.add(allowed)
-            else:
-                # If the IP versions don't match, keep the allowed network as it is.
-                new_remaining_networks.add(allowed)
+        collapsed_allowed = list(ipaddress.collapse_addresses(allowed_v))
+        collapsed_dis = list(ipaddress.collapse_addresses(dis_v)) if dis_v else []
 
-        # Update the remaining networks after processing each disallowed network
-        remaining_networks = new_remaining_networks
+        a_ivals = [(int(n.network_address), int(n.broadcast_address)) for n in collapsed_allowed]
+        d_ivals = [(int(n.network_address), int(n.broadcast_address)) for n in collapsed_dis]
 
-    return remaining_networks
+        di = 0
+        for a_start, a_end in a_ivals:
+            while di < len(d_ivals) and d_ivals[di][1] < a_start:
+                di += 1
+            cur = a_start
+            dj = di
+            while dj < len(d_ivals) and d_ivals[dj][0] <= a_end:
+                d_start, d_end = d_ivals[dj]
+                if d_start > cur:
+                    result.update(ipaddress.summarize_address_range(addr_cls(cur), addr_cls(d_start - 1)))
+                cur = max(cur, d_end + 1)
+                dj += 1
+            if cur <= a_end:
+                result.update(ipaddress.summarize_address_range(addr_cls(cur), addr_cls(a_end)))
 
-
-def handle_partial_overlap(allowed, disallowed):
-    # This function will handle the case of a partial overlap and return the non-overlapping portions of the allowed network.
-    non_overlapping_networks = []
-
-    # Calculate the IPs for the allowed and disallowed networks
-    allowed_ips = list(allowed.hosts())
-    disallowed_ips = set(disallowed.hosts())  # Use a set for faster lookup
-
-    # Filter out the disallowed IPs
-    allowed_ips = [ip for ip in allowed_ips if ip not in disallowed_ips]
-
-    if not allowed_ips:
-        # If no IPs are left, there's nothing to add
-        return non_overlapping_networks
-
-    # Create new network(s) from the remaining IPs.
-    # This is a simplistic way and works on individual IPs, not ranges.
-    # You might need a more efficient way to handle ranges of IPs, especially for large networks.
-    for ip in allowed_ips:
-        if ip.version == 4:
-            non_overlapping_networks.append(
-                ipaddress.ip_network(f"{ip}/32", strict=False)
-            )
-        else:
-            non_overlapping_networks.append(
-                ipaddress.ip_network(f"{ip}/128", strict=False)
-            )
-
-    return non_overlapping_networks
+    return result
 
 
 def sort_networks(networks):
